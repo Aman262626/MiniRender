@@ -1,0 +1,14 @@
+http:
+  routers:
+    panel-router:
+      rule: "Host(`panel.myhost.in`)"
+      entryPoints:
+        - websecure
+      service: panel-service
+      tls:
+        certResolver: myresolver
+  services:
+    panel-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8000"
