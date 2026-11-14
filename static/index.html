@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MiniRender • Cloud Hosting & Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <style>
+    body { background-color: #0b0e14; color: #e2e8f0; font-family: Inter, system-ui, sans-serif; }
+    .card { background-color: #131722; border: 1px solid #232a3b; }
+    .tab-active { border-left: 3px solid #7c3aed; background: #1e2436; color: #fff; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-[#0f131c]">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded bg-violet-600 flex items-center justify-center font-bold text-white">R</div>
+      <span class="font-semibold text-lg">MiniRender</span>
+      <span id="userBadge" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300"></span>
+    </div>
+    <div class="flex items-center gap-2.5">
+      <div id="ghHeaderStatus" class="text-xs"></div>
+      <button id="adminBtn" onclick="openAdminView()" class="hidden bg-amber-600/20 text-amber-300 border border-amber-500/40 hover:bg-amber-600/30 px-3 py-1.5 rounded text-xs font-medium">
+        🛡️ Admin Panel
+      </button>
+      <button onclick="openNewModal()" class="bg-violet-600 hover:bg-violet-500 text-white px-4 py-1.5 rounded text-sm font-medium">
+        + New Service
+      </button>
+      <button onclick="logout()" class="text-xs text-slate-400 hover:text-white border border-slate-700 px-3 py-1.5 rounded">Logout</button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden">
+    <aside class="w-64 border-r border-slate-800 bg-[#0f131c] p-4 overflow-y-auto">
+      <h2 class="text-xs uppercase text-slate-400 font-semibold mb-3">Services</h2>
+      <div id="projectList" class="space-y-1.5"></div>
+    </aside>
+
+    <main class="flex-1 p-6 overflow-y-auto" id="mainArea">
+      <div class="text-center text-slate-500 mt-20">बाएं से कोई सर्विस चुनें या "+ New Service" पर क्लिक करें।</div>
+    </main>
+  </div>
+
+  <!-- Login Screen -->
+  <div id="loginScreen" class="hidden fixed inset-0 bg-[#0b0e14] z-50 flex items-center justify-center">
+    <form onsubmit="doLogin(event)" class="card rounded-lg p-6 w-full max-w-sm space-y-3">
+      <h2 class="text-xl font-bold text-center">🔐 MiniRender Login</h2>
+      <input id="loginUser" placeholder="Username" required class="w-full bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" />
+      <input id="loginPass" type="password" placeholder="Password" required class="w-full bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" />
+      <p id="loginErr" class="text-xs text-rose-400 hidden"></p>
+      <button type="submit" class="w-full bg-violet-600 hover:bg-violet-500 py-2 rounded font-medium text-sm">Sign In</button>
+      <div class="relative flex py-1 items-center"><div class="flex-grow border-t border-slate-700"></div><span class="mx-2 text-xs text-slate-500">OR</span><div class="flex-grow border-t border-slate-700"></div></div>
+      <a href="/api/github/login?mode=login" class="w-full flex items-center justify-center gap-2 bg-[#24292f] hover:bg-[#32383f] border border-slate-700 text-white py-2 rounded font-medium text-sm">
+        🐙 Continue with GitHub
+      </a>
+    </form>
+  </div>
+
+  <!-- New Service Modal -->
+  <div id="newModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40">
+    <div class="card rounded-lg w-full max-w-lg p-6 space-y-3 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center">
+        <h3 class="text-lg font-semibold">Deploy New Project</h3>
+        <button onclick="closeNewModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="flex gap-2 bg-[#0b0e14] p-1 rounded border border-slate-800">
+        <button type="button" id="srcGhBtn" onclick="setSourceMode('github')" class="flex-1 py-1.5 text-xs rounded bg-violet-600 text-white font-medium">🐙 GitHub Repo</button>
+        <button type="button" id="srcZipBtn" onclick="setSourceMode('zip')" class="flex-1 py-1.5 text-xs rounded text-slate-400">📦 Upload ZIP</button>
+      </div>
+
+      <div id="ghPickerBox" class="space-y-2 border border-slate-800 bg-[#0b0e14] p-3 rounded">
+        <div id="ghNotConnected" class="hidden text-center py-2">
+          <p class="text-xs text-slate-400 mb-2">GitHub कनेक्ट करें ताकि सभी Repos यहीं दिखें:</p>
+          <a href="/api/github/login?mode=connect" class="inline-block bg-[#24292f] border border-slate-600 px-4 py-1.5 rounded text-xs">🔗 Authorize GitHub</a>
+        </div>
+        <div id="ghConnectedBox" class="hidden space-y-2">
+          <input id="repoSearch" oninput="filterRepos()" placeholder="🔍 Search repository..." class="w-full bg-[#131722] border border-slate-700 rounded px-2.5 py-1.5 text-xs" />
+          <select id="ghRepoSelect" onchange="onRepoSelect()" class="w-full bg-[#131722] border border-slate-700 rounded px-2.5 py-1.5 text-xs"></select>
+          <div class="grid grid-cols-2 gap-2">
+            <select id="ghBranchSelect" onchange="loadRepoFiles('')" class="bg-[#131722] border border-slate-700 rounded px-2 py-1.5 text-xs"></select>
+            <input id="ghRootDir" placeholder="Root Folder/File (Optional)" class="bg-[#131722] border border-slate-700 rounded px-2 py-1.5 text-xs" />
+          </div>
+          <div class="text-[11px] text-slate-400">📂 Repo Files (चुनने के लिए क्लिक करें):</div>
+          <div id="ghFileList" class="max-h-28 overflow-y-auto bg-[#131722] rounded border border-slate-800 p-1.5 space-y-1 text-xs"></div>
+          <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" id="ghAutoDeploy" checked /> Git Push पर Auto-Deploy चालू रखें</label>
+        </div>
+      </div>
+
+      <form id="newForm" onsubmit="createProject(event)" class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-400">Service Name (lowercase, a-z, 0-9, -)</label>
+          <input name="name" required placeholder="my-app" class="w-full mt-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-400">Service Type</label>
+            <select name="service_type" id="svcType" onchange="toggleWebFields()" class="w-full mt-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm">
+              <option value="web">Web Service (Backend)</option>
+              <option value="static">Static Site (HTML/JS)</option>
+            </select>
+          </div>
+          <div id="runtimeBox">
+            <label class="text-xs text-slate-400">Runtime</label>
+            <select name="runtime" class="w-full mt-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm">
+              <option value="python">Python</option>
+              <option value="node">Node.js</option>
+            </select>
+          </div>
+        </div>
+        <div id="webFields" class="space-y-2">
+          <input name="build_command" placeholder="Build Command (e.g. pip install -r requirements.txt)" class="w-full bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" />
+          <input name="start_command" placeholder="Start Command (e.g. python app.py)" class="w-full bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" />
+          <input name="internal_port" type="hidden" value="8000" />
+        </div>
+        <div id="zipBox" class="hidden">
+          <label class="text-xs text-slate-400">Project ZIP File</label>
+          <input name="zip_file" type="file" accept=".zip" class="w-full mt-1 text-sm text-slate-300" />
+        </div>
+        <button type="submit" class="w-full bg-violet-600 hover:bg-violet-500 text-white py-2 rounded font-medium">Deploy Project</button>
+      </form>
+    </div>
+  </div>
+
+<script>
+let projects = [];
+let currentUser = null;
+let selectedId = null;
+let adminMode = false;
+let activeTab = "deploys";
+let sourceMode = "github";
+let allRepos = [];
+let logWs = null, shellWs = null, metricsTimer = null, term = null;
+
+function badgeColor(s) {
+  if (s === "Live") return "text-emerald-400 bg-emerald-400/10 border-emerald-500/30";
+  if (s === "Building") return "text-amber-400 bg-amber-400/10 border-amber-500/30";
+  if (s === "Failed") return "text-rose-400 bg-rose-400/10 border-rose-500/30";
+  return "text-slate-400 bg-slate-400/10 border-slate-600/30";
+}
+
+function closeSockets() {
+  if (logWs) { logWs.close(); logWs = null; }
+  if (shellWs) { shellWs.close(); shellWs = null; }
+  if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; }
+}
+
+async function init() {
+  const meRes = await fetch("/api/me");
+  if (meRes.status === 401 || meRes.status === 403) {
+    document.getElementById("loginScreen").classList.remove("hidden");
+    return;
+  }
+  document.getElementById("loginScreen").classList.add("hidden");
+  currentUser = await meRes.json();
+  document.getElementById("userBadge").textContent = `${currentUser.role === 'admin' ? '👑' : '👤'} ${currentUser.username}`;
+  document.getElementById("adminBtn").classList.toggle("hidden", currentUser.role !== "admin");
+  checkGitHubStatus();
+  fetchProjects();
+}
+
+async function fetchProjects() {
+  const res = await fetch("/api/projects");
+  if (!res.ok) return;
+  projects = await res.json();
+  renderSidebar();
+  if (!adminMode && selectedId && activeTab === "deploys") {
+    if (projects.find(p => p.id === selectedId)) renderMain();
+  }
+}
+
+function renderSidebar() {
+  document.getElementById("projectList").innerHTML = projects.map(p => `
+    <div onclick="selectProject(${p.id})" class="cursor-pointer p-2.5 rounded text-sm flex items-center justify-between ${!adminMode && p.id === selectedId ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50 text-slate-300'}">
+      <div class="truncate">
+        <div class="font-medium truncate">${p.name}</div>
+        <div class="text-[11px] text-slate-500">${p.service_type} • ${p.owner_username}</div>
+      </div>
+      <span class="w-2 h-2 rounded-full ${p.status === 'Live' ? 'bg-emerald-400' : p.status === 'Building' ? 'bg-amber-400 animate-pulse' : 'bg-rose-400'}"></span>
+    </div>
+  `).join("");
+}
+
+function selectProject(id) {
+  adminMode = false;
+  selectedId = id;
+  renderSidebar();
+  renderMain();
+}
+
+function switchTab(tab) { activeTab = tab; renderMain(); }
+
+function renderMain() {
+  closeSockets();
+  const p = projects.find(x => x.id === selectedId);
+  if (!p) return;
+  document.getElementById("mainArea").innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-800">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 class="text-2xl font-bold">${p.name}</h1>
+          <span class="px-2.5 py-0.5 text-xs rounded-full border ${badgeColor(p.status)}">● ${p.status}</span>
+          <span class="text-xs text-slate-500">Owner: ${p.owner_username}</span>
+        </div>
+        <a href="${p.url}" target="_blank" class="text-sm text-violet-400 hover:underline mt-1 inline-block">${p.url} ↗</a>
+        ${p.github_repo ? `<div class="text-xs text-slate-400 mt-1">🐙 ${p.github_repo} (${p.github_branch})</div>` : ''}
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="serviceAction(${p.id}, 'restart')" class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700">Restart</button>
+        <button onclick="serviceAction(${p.id}, '${p.status === 'Stopped' ? 'start' : 'stop'}')" class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700">${p.status === 'Stopped' ? 'Start' : 'Suspend'}</button>
+        <label class="px-3 py-1.5 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded cursor-pointer">Upload ZIP<input type="file" accept=".zip" class="hidden" onchange="redeployZip(${p.id}, this)" /></label>
+      </div>
+    </div>
+    <div class="flex gap-6 mt-6">
+      <div class="w-44 space-y-1 text-sm">
+        <button onclick="switchTab('deploys')" class="w-full text-left px-3 py-2 rounded ${activeTab === 'deploys' ? 'tab-active' : 'text-slate-400 hover:text-white'}">🚀 Deploys</button>
+        <button onclick="switchTab('logs')" class="w-full text-left px-3 py-2 rounded ${activeTab === 'logs' ? 'tab-active' : 'text-slate-400 hover:text-white'}">📜 Logs</button>
+        <button onclick="switchTab('env')" class="w-full text-left px-3 py-2 rounded ${activeTab === 'env' ? 'tab-active' : 'text-slate-400 hover:text-white'}">🔑 Environment</button>
+        <button onclick="switchTab('shell')" class="w-full text-left px-3 py-2 rounded ${activeTab === 'shell' ? 'tab-active' : 'text-slate-400 hover:text-white'}">💻 Shell</button>
+        <button onclick="switchTab('metrics')" class="w-full text-left px-3 py-2 rounded ${activeTab === 'metrics' ? 'tab-active' : 'text-slate-400 hover:text-white'}">📊 Metrics</button>
+        <button onclick="switchTab('settings')" class="w-full text-left px-3 py-2 rounded ${activeTab === 'settings' ? 'tab-active' : 'text-slate-400 hover:text-white'}">⚙️ Settings</button>
+      </div>
+      <div class="flex-1 card rounded-lg p-5 min-h-[450px]" id="tabContent"></div>
+    </div>
+  `;
+
+  const content = document.getElementById("tabContent");
+  if (activeTab === "deploys") {
+    content.innerHTML = `
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-semibold">Latest Build & Deploy Output</h3>
+        <button onclick="redeployOnly(${p.id})" class="text-xs bg-slate-800 px-3 py-1.5 rounded border border-slate-700 hover:bg-slate-700">${p.github_repo ? 'Pull GitHub & Redeploy' : 'Manual Redeploy'}</button>
+      </div>
+      <pre class="bg-[#0b0e14] p-4 rounded text-xs text-slate-300 font-mono overflow-x-auto max-h-[400px] whitespace-pre-wrap">${escapeHtml(p.deploy_logs || "No logs yet.")}</pre>
+    `;
+  } else if (activeTab === "logs") {
+    content.innerHTML = `<h3 class="font-semibold mb-3">Live Runtime Logs</h3><pre id="liveLogBox" class="bg-[#0b0e14] p-4 rounded text-xs text-emerald-300 font-mono overflow-y-auto h-[400px] whitespace-pre-wrap"></pre>`;
+    logWs = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/logs/${p.id}`);
+    logWs.onmessage = (e) => { const b = document.getElementById("liveLogBox"); b.textContent += e.data; b.scrollTop = b.scrollHeight; };
+  } else if (activeTab === "env") {
+    const entries = Object.entries(p.env_vars || {});
+    content.innerHTML = `
+      <div class="flex justify-between items-center mb-4"><h3 class="font-semibold">Environment Variables</h3><button onclick="addEnvRow()" class="text-xs bg-slate-800 px-3 py-1.5 rounded border border-slate-700">+ Add</button></div>
+      <div id="envRows" class="space-y-2 mb-4">${entries.map(([k, v]) => envRowHtml(k, v)).join("")}</div>
+      <button onclick="saveEnv(${p.id})" class="bg-violet-600 hover:bg-violet-500 px-4 py-2 rounded text-sm font-medium">Save & Redeploy</button>
+    `;
+    if (!entries.length) addEnvRow();
+  } else if (activeTab === "shell") {
+    content.innerHTML = `<h3 class="font-semibold mb-3">Interactive Linux Shell</h3><div id="terminalBox" class="bg-black rounded p-2 h-[400px]"></div>`;
+    term = new Terminal({ cursorBlink: true, theme: { background: "#000000" } });
+    term.open(document.getElementById("terminalBox"));
+    shellWs = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/shell/${p.id}`);
+    shellWs.onmessage = (e) => term.write(e.data);
+    term.onData((d) => { if (shellWs && shellWs.readyState === 1) shellWs.send(d); });
+  } else if (activeTab === "metrics") {
+    content.innerHTML = `
+      <h3 class="font-semibold mb-4">Live Resource Usage</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-[#0b0e14] p-4 rounded border border-slate-800"><div class="text-xs text-slate-400">CPU Usage</div><div id="cpuVal" class="text-2xl font-bold text-violet-400 mt-1">-- %</div><div class="w-full bg-slate-800 h-2 rounded mt-3"><div id="cpuBar" class="bg-violet-500 h-2 rounded" style="width:0%"></div></div></div>
+        <div class="bg-[#0b0e14] p-4 rounded border border-slate-800"><div class="text-xs text-slate-400">Memory (RAM)</div><div id="ramVal" class="text-2xl font-bold text-emerald-400 mt-1">-- MB</div><div class="w-full bg-slate-800 h-2 rounded mt-3"><div id="ramBar" class="bg-emerald-500 h-2 rounded" style="width:0%"></div></div></div>
+      </div>
+    `;
+    const upd = async () => {
+      if (activeTab !== "metrics" || selectedId !== p.id) return;
+      const r = await fetch(`/api/projects/${p.id}/metrics`);
+      if (!r.ok) return;
+      const m = await r.json();
+      document.getElementById("cpuVal").textContent = `${m.cpu_percent} %`;
+      document.getElementById("cpuBar").style.width = `${Math.min(m.cpu_percent, 100)}%`;
+      document.getElementById("ramVal").textContent = `${m.mem_mb} MB`;
+      document.getElementById("ramBar").style.width = `${Math.min((m.mem_mb / m.mem_limit_mb) * 100, 100)}%`;
+    };
+    upd();
+    metricsTimer = setInterval(upd, 3000);
+  } else if (activeTab === "settings") {
+    content.innerHTML = `
+      <h3 class="font-semibold mb-4">Service Settings</h3>
+      <div class="space-y-3 max-w-lg">
+        <div><label class="text-xs text-slate-400">Build Command</label><input id="setBuild" value="${escapeHtml(p.build_command)}" class="w-full mt-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" /></div>
+        <div><label class="text-xs text-slate-400">Start Command</label><input id="setStart" value="${escapeHtml(p.start_command)}" class="w-full mt-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" /></div>
+        <div><label class="text-xs text-slate-400">Custom Domain (Optional, e.g. mysite.com)</label><input id="setDomain" value="${escapeHtml(p.custom_domain || '')}" placeholder="mysite.com" class="w-full mt-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-2 text-sm" /></div>
+        <button onclick="saveSettings(${p.id})" class="bg-violet-600 hover:bg-violet-500 px-4 py-2 rounded text-sm font-medium">Save & Redeploy</button>
+      </div>
+      <hr class="border-slate-800 my-6" />
+      <button onclick="deleteProject(${p.id})" class="bg-rose-600/20 text-rose-400 border border-rose-600/40 px-4 py-2 rounded text-sm">Delete Service</button>
+    `;
+  }
+}
+
+// 🛡️ ADMIN PANEL UI
+async function openAdminView() {
+  closeSockets();
+  adminMode = true;
+  renderSidebar();
+  const res = await fetch("/api/admin/overview");
+  if (!res.ok) return alert("Admin access failed");
+  const data = await res.json();
+
+  document.getElementById("mainArea").innerHTML = `
+    <div class="flex justify-between items-center pb-4 border-b border-slate-800">
+      <h1 class="text-2xl font-bold">🛡️ Admin Control Panel</h1>
+      <button onclick="openAdminView()" class="text-xs bg-slate-800 px-3 py-1.5 rounded border border-slate-700">🔄 Refresh</button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+      <!-- Users & Live Status -->
+      <div class="card rounded-lg p-5 space-y-4">
+        <h3 class="font-semibold">👥 Website Users (Live Status)</h3>
+        <div class="space-y-2 max-h-64 overflow-y-auto">
+          ${data.users.map(u => `
+            <div class="bg-[#0b0e14] p-3 rounded border border-slate-800 flex items-center justify-between text-xs">
+              <div>
+                <div class="font-semibold flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full ${u.online ? 'bg-emerald-400' : 'bg-slate-600'}"></span>
+                  ${u.username} <span class="text-slate-500">(${u.role})</span>
+                  ${u.github_username ? `<span class="text-violet-400">🐙@${u.github_username}</span>` : ''}
+                </div>
+                <div class="text-slate-500 mt-1">IP: ${u.last_ip} • Projects: ${u.project_count} • ${u.online ? 'Online Now' : (u.last_seen || 'Never')}</div>
+              </div>
+              ${u.username !== currentUser.username ? `
+                <div class="flex gap-1.5">
+                  <button onclick="toggleUser(${u.id})" class="px-2 py-1 rounded border ${u.is_active ? 'border-amber-500/40 text-amber-300' : 'border-emerald-500/40 text-emerald-300'}">${u.is_active ? 'Block' : 'Unblock'}</button>
+                  <button onclick="delUser(${u.id})" class="px-2 py-1 rounded border border-rose-500/40 text-rose-400">Del</button>
+                </div>` : '<span class="text-emerald-400">You</span>'}
+            </div>
+          `).join("")}
+        </div>
+        <form onsubmit="createUser(event)" class="pt-3 border-t border-slate-800 grid grid-cols-2 gap-2">
+          <input id="newUName" required placeholder="New Username" class="bg-[#0b0e14] border border-slate-700 rounded px-2.5 py-1.5 text-xs" />
+          <input id="newUPass" required placeholder="Password" class="bg-[#0b0e14] border border-slate-700 rounded px-2.5 py-1.5 text-xs" />
+          <input id="newUGh" placeholder="GitHub Username (Optional)" class="bg-[#0b0e14] border border-slate-700 rounded px-2.5 py-1.5 text-xs" />
+          <select id="newURole" class="bg-[#0b0e14] border border-slate-700 rounded px-2.5 py-1.5 text-xs"><option value="user">User</option><option value="admin">Admin</option></select>
+          <button type="submit" class="col-span-2 bg-violet-600 hover:bg-violet-500 py-1.5 rounded text-xs font-medium">+ Create User</button>
+        </form>
+      </div>
+
+      <!-- Telegram Bot Access -->
+      <div class="card rounded-lg p-5 space-y-4">
+        <div class="flex justify-between items-center">
+          <h3 class="font-semibold">🤖 Telegram Bot Allowed Chat IDs</h3>
+          <span class="text-xs text-amber-300">Admin ID: ${data.telegram_admin_id}</span>
+        </div>
+        <div class="space-y-2 max-h-64 overflow-y-auto">
+          ${data.telegram_users.map(t => `
+            <div class="bg-[#0b0e14] p-2.5 rounded border border-slate-800 flex justify-between items-center text-xs">
+              <div><span class="font-mono text-emerald-400">${t.chat_id}</span> • ${escapeHtml(t.label)} <span class="text-slate-500">(by ${t.added_by})</span></div>
+              <button onclick="delTgUser(${t.chat_id})" class="text-rose-400 hover:underline">Remove</button>
+            </div>
+          `).join("")}
+        </div>
+        <form onsubmit="addTgUser(event)" class="pt-3 border-t border-slate-800 flex gap-2">
+          <input id="tgChatId" type="number" required placeholder="Telegram Chat ID" class="flex-1 bg-[#0b0e14] border border-slate-700 rounded px-2.5 py-1.5 text-xs" />
+          <input id="tgLabel" placeholder="Name (e.g. Rahul)" class="w-32 bg-[#0b0e14] border border-slate-700 rounded px-2.5 py-1.5 text-xs" />
+          <button type="submit" class="bg-violet-600 hover:bg-violet-500 px-3 py-1.5 rounded text-xs font-medium">+ Allow</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Activity Logs -->
+    <div class="card rounded-lg p-5 mt-6">
+      <h3 class="font-semibold mb-3">📜 Recent User Activity Logs</h3>
+      <div class="max-h-64 overflow-y-auto text-xs font-mono space-y-1">
+        ${data.logs.map(l => `
+          <div class="bg-[#0b0e14] px-3 py-1.5 rounded flex justify-between">
+            <span><span class="text-violet-400">${l.username}</span> • <span class="text-amber-300">${l.action}</span> • ${escapeHtml(l.details)}</span>
+            <span class="text-slate-500">${l.ip} | ${l.time.slice(0,19)}</span>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function createUser(e) {
+  e.preventDefault();
+  const res = await fetch("/api/admin/users", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: document.getElementById("newUName").value,
+      password: document.getElementById("newUPass").value,
+      github_username: document.getElementById("newUGh").value,
+      role: document.getElementById("newURole").value,
+    })
+  });
+  if (!res.ok) return alert((await res.json()).detail);
+  openAdminView();
+}
+async function toggleUser(id) { await fetch(`/api/admin/users/${id}/toggle`, { method: "POST" }); openAdminView(); }
+async function delUser(id) { if (confirm("Delete user?")) { await fetch(`/api/admin/users/${id}`, { method: "DELETE" }); openAdminView(); } }
+async function addTgUser(e) {
+  e.preventDefault();
+  await fetch("/api/admin/telegram", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: parseInt(document.getElementById("tgChatId").value), label: document.getElementById("tgLabel").value || "User" })
+  });
+  openAdminView();
+}
+async function delTgUser(cid) { await fetch(`/api/admin/telegram/${cid}`, { method: "DELETE" }); openAdminView(); }
+
+// GitHub & Project Helpers
+async function checkGitHubStatus() {
+  const res = await fetch("/api/github/status");
+  if (!res.ok) return;
+  const st = await res.json();
+  const el = document.getElementById("ghHeaderStatus");
+  if (st.connected) {
+    el.innerHTML = `<span class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-emerald-400">🐙 @${st.username}</span>`;
+    document.getElementById("ghNotConnected").classList.add("hidden");
+    document.getElementById("ghConnectedBox").classList.remove("hidden");
+    loadRepos();
+  } else {
+    el.innerHTML = `<a href="/api/github/login?mode=connect" class="px-3 py-1.5 rounded bg-[#24292f] border border-slate-700">🔗 Connect GitHub</a>`;
+    document.getElementById("ghNotConnected").classList.remove("hidden");
+    document.getElementById("ghConnectedBox").classList.add("hidden");
+  }
+}
+
+function setSourceMode(mode) {
+  sourceMode = mode;
+  document.getElementById("ghPickerBox").classList.toggle("hidden", mode !== "github");
+  document.getElementById("zipBox").classList.toggle("hidden", mode !== "zip");
+  document.getElementById("srcGhBtn").className = `flex-1 py-1.5 text-xs rounded font-medium ${mode === 'github' ? 'bg-violet-600 text-white' : 'text-slate-400'}`;
+  document.getElementById("srcZipBtn").className = `flex-1 py-1.5 text-xs rounded font-medium ${mode === 'zip' ? 'bg-violet-600 text-white' : 'text-slate-400'}`;
+}
+
+async function loadRepos() {
+  const res = await fetch("/api/github/repos");
+  if (!res.ok) return;
+  allRepos = await res.json();
+  renderRepoOptions(allRepos);
+}
+function filterRepos() { const q = document.getElementById("repoSearch").value.toLowerCase(); renderRepoOptions(allRepos.filter(r => r.full_name.toLowerCase().includes(q))); }
+function renderRepoOptions(list) {
+  document.getElementById("ghRepoSelect").innerHTML = list.map(r => `<option value="${r.full_name}">${r.private ? '🔒' : '🌐'} ${r.full_name}</option>`).join("");
+  if (list.length) onRepoSelect();
+}
+async function onRepoSelect() {
+  const repo = document.getElementById("ghRepoSelect").value;
+  if (!repo) return;
+  const branches = await (await fetch(`/api/github/branches?repo=${encodeURIComponent(repo)}`)).json();
+  document.getElementById("ghBranchSelect").innerHTML = branches.map(b => `<option value="${b}">${b}</option>`).join("");
+  document.getElementById("ghRootDir").value = "";
+  loadRepoFiles("");
+}
+async function loadRepoFiles(path) {
+  const repo = document.getElementById("ghRepoSelect").value;
+  const branch = document.getElementById("ghBranchSelect").value;
+  const items = await (await fetch(`/api/github/contents?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`)).json();
+  let html = path ? `<div onclick="loadRepoFiles('${path.split('/').slice(0,-1).join('/')}')" class="cursor-pointer text-violet-400">⬅️ ..</div>` : "";
+  html += items.map(i => i.type === "dir"
+    ? `<div class="flex justify-between hover:bg-slate-800 px-1.5 py-0.5 rounded"><span onclick="loadRepoFiles('${i.path}')" class="cursor-pointer text-amber-300">📁 ${i.name}</span><button type="button" onclick="document.getElementById('ghRootDir').value='${i.path}'" class="text-[10px] text-violet-400">Select</button></div>`
+    : `<div onclick="document.getElementById('ghRootDir').value='${i.path}'" class="cursor-pointer hover:bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">📄 ${i.name}</div>`
+  ).join("");
+  document.getElementById("ghFileList").innerHTML = html;
+}
+
+function envRowHtml(k = "", v = "") {
+  return `<div class="flex gap-2 env-row"><input placeholder="KEY" value="${escapeHtml(k)}" class="env-k flex-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-1.5 text-sm font-mono" /><input placeholder="VALUE" value="${escapeHtml(v)}" class="env-v flex-1 bg-[#0b0e14] border border-slate-700 rounded px-3 py-1.5 text-sm font-mono" /><button onclick="this.parentElement.remove()" class="px-2 text-rose-400">✕</button></div>`;
+}
+function addEnvRow() { document.getElementById("envRows").insertAdjacentHTML("beforeend", envRowHtml()); }
+async function saveEnv(id) {
+  const env_vars = {};
+  document.querySelectorAll(".env-row").forEach(r => { const k = r.querySelector(".env-k").value.trim(); if (k) env_vars[k] = r.querySelector(".env-v").value; });
+  await fetch(`/api/projects/${id}/env`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ env_vars }) });
+  activeTab = "deploys"; fetchProjects();
+}
+async function saveSettings(id) {
+  const domEl = document.getElementById("setDomain");
+  await fetch(`/api/projects/${id}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      build_command: document.getElementById("setBuild").value,
+      start_command: document.getElementById("setStart").value,
+      custom_domain: domEl ? domEl.value : ""
+    })
+  });
+  activeTab = "deploys"; fetchProjects();
+}
+async function serviceAction(id, action) { await fetch(`/api/projects/${id}/action/${action}`, { method: "POST" }); fetchProjects(); }
+async function redeployOnly(id) { await fetch(`/api/projects/${id}/redeploy`, { method: "POST" }); fetchProjects(); }
+async function redeployZip(id, inp) {
+  if (!inp.files[0]) return;
+  const fd = new FormData(); fd.append("zip_file", inp.files[0]);
+  await fetch(`/api/projects/${id}/redeploy`, { method: "POST", body: fd });
+  activeTab = "deploys"; fetchProjects();
+}
+async function deleteProject(id) {
+  if (!confirm("Delete service?")) return;
+  await fetch(`/api/projects/${id}`, { method: "DELETE" });
+  selectedId = null; document.getElementById("mainArea").innerHTML = ""; fetchProjects();
+}
+function openNewModal() { document.getElementById("newModal").classList.remove("hidden"); }
+function closeNewModal() { document.getElementById("newModal").classList.add("hidden"); }
+function toggleWebFields() {
+  const s = document.getElementById("svcType").value === "static";
+  document.getElementById("webFields").classList.toggle("hidden", s);
+  document.getElementById("runtimeBox").classList.toggle("hidden", s);
+}
+async function createProject(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  let url = "/api/projects";
+  if (sourceMode === "github") {
+    url = "/api/projects/github";
+    fd.append("github_repo", document.getElementById("ghRepoSelect").value);
+    fd.append("github_branch", document.getElementById("ghBranchSelect").value);
+    fd.append("root_dir", document.getElementById("ghRootDir").value);
+    fd.append("auto_deploy", document.getElementById("ghAutoDeploy").checked ? "1" : "0");
+    fd.delete("zip_file");
+  }
+  const res = await fetch(url, { method: "POST", body: fd });
+  if (!res.ok) return alert((await res.json()).detail);
+  const c = await res.json();
+  closeNewModal(); e.target.reset(); adminMode = false; selectedId = c.id; activeTab = "deploys"; fetchProjects();
+}
+async function doLogin(e) {
+  e.preventDefault();
+  const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: document.getElementById("loginUser").value, password: document.getElementById("loginPass").value }) });
+  if (!res.ok) { const err = document.getElementById("loginErr"); err.textContent = (await res.json()).detail; err.classList.remove("hidden"); return; }
+  init();
+}
+async function logout() { await fetch("/api/logout", { method: "POST" }); closeSockets(); document.getElementById("loginScreen").classList.remove("hidden"); }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }
+
+init();
+setInterval(fetchProjects, 4000);
+</script>
+</body>
+</html>
