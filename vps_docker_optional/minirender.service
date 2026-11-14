@@ -1,0 +1,19 @@
+[Unit]
+Description=MiniRender PaaS & Telegram Bot
+After=network.target docker.service
+
+[Service]
+User=root
+WorkingDirectory=/root/my-render
+Environment="BASE_DOMAIN=myhost.in"
+Environment="DOCKER_NETWORK=paas_net"
+Environment="ADMIN_USERNAME=admin"
+Environment="ADMIN_PASSWORD=mera_strong_password"
+Environment="SECRET_KEY=kuch_bhi_lamba_secret_key"
+Environment="TELEGRAM_BOT_TOKEN=आपका_बॉट_टोकन"
+Environment="ALLOWED_TELEGRAM_IDS=आपकी_टेलीग्राम_ID"
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
